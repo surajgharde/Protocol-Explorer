@@ -8,21 +8,25 @@ import { CapturePanel } from "@/components/CapturePanel";
 import { CommandPalette } from "@/components/CommandPalette";
 import { DetailPanel } from "@/components/DetailPanel";
 import { Header } from "@/components/Header";
-import { LayersIcon, SequenceIcon } from "@/components/Icons";
+import { CubeIcon, LayersIcon, SequenceIcon } from "@/components/Icons";
 import { NetworkDiagram } from "@/components/NetworkDiagram";
+import { IsometricDiagram } from "@/components/IsometricDiagram";
 import { ProtocolRail } from "@/components/ProtocolRail";
 import { SequenceDiagram } from "@/components/SequenceDiagram";
 
 const CAPTURE_NOTE = "Illustrative capture · routine ACKs trimmed";
 const THEME_KEY = "protocol-explorer-theme";
 
-type View = "network" | "sequence";
+type View = "iso" | "network" | "sequence";
+
+/** Order the V key cycles through. */
+const viewOrder: View[] = ["iso", "network", "sequence"];
 
 export default function Page() {
   const [selectedId, setSelectedId] = useState(protocols[0].id);
   const [category, setCategory] = useState<ProtocolCategory | "all">("all");
   const [layer, setLayer] = useState<number | null>(null);
-  const [view, setView] = useState<View>("network");
+  const [view, setView] = useState<View>("iso");
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [panels, setPanels] = useState({ rail: true, capture: true, aside: true });
   const [focusMode, setFocusMode] = useState(false);
@@ -147,7 +151,8 @@ export default function Page() {
           break;
         default:
           if (e.key.toLowerCase() === "r") playback.reset();
-          if (e.key.toLowerCase() === "v") setView((v) => (v === "network" ? "sequence" : "network"));
+          if (e.key.toLowerCase() === "v")
+        setView((v) => viewOrder[(viewOrder.indexOf(v) + 1) % viewOrder.length]);
           if (e.key === "?") setShortcutsOpen((open) => !open);
       }
     };
@@ -202,6 +207,15 @@ export default function Page() {
               <button
                 type="button"
                 className="chip"
+                aria-pressed={view === "iso"}
+                onClick={() => setView("iso")}
+              >
+                <CubeIcon size={12} />
+                3D
+              </button>
+              <button
+                type="button"
+                className="chip"
                 aria-pressed={view === "network"}
                 onClick={() => setView("network")}
               >
@@ -219,7 +233,15 @@ export default function Page() {
               </button>
             </div>
 
-            {view === "network" ? (
+            {view === "iso" ? (
+              <div className="diagram-body">
+                <IsometricDiagram
+                  protocol={protocol}
+                  flight={flight}
+                  lastPacket={currentPacket}
+                />
+              </div>
+            ) : view === "network" ? (
               <div className="diagram-body">
                 <NetworkDiagram
                   protocol={protocol}
@@ -290,7 +312,7 @@ export default function Page() {
                   { label: "→", value: "Step forward one packet" },
                   { label: "←", value: "Step back one packet" },
                   { label: "R", value: "Reset the capture" },
-                  { label: "V", value: "Switch network and sequence views" },
+                  { label: "V", value: "Cycle 3D, network and sequence views" },
                   { label: "?", value: "Show this list" },
                 ].map((row) => (
                   <div className="spec-row" key={row.label}>
