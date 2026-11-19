@@ -20,7 +20,7 @@ export const applicationProtocols: Protocol[] = [
     ],
     description:
       "HTTP is the protocol of the web: a client asks for a resource, such as an HTML page, and the server answers with a status code, headers and usually a body. Every exchange is one request and one response, written as readable text in HTTP/1.1. The server remembers nothing between requests, so anything resembling a session is carried in cookies or tokens the client sends each time.",
-    nodes: nodes("client", ["router", { passive: true }], "resolver", "web"),
+    nodes: nodes("client", ["router", { passive: true }], "resolver", "web", "internet"),
     links: links("client-router", "router-resolver", "router-web", "router-internet~"),
     steps: [
       {
