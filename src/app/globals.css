@@ -21,11 +21,9 @@
   --grid: rgba(29, 78, 216, 0.07);
   --shadow: 0 1px 2px rgba(15, 37, 80, 0.06);
 
-  /* The 3D map's floor and the shadows cast onto it. */
-  --iso-floor: rgba(29, 78, 216, 0.05);
-  --iso-floor-far: rgba(29, 78, 216, 0.005);
-  --iso-floor-edge: rgba(29, 78, 216, 0.14);
-  --iso-cast: rgba(15, 37, 80, 0.13);
+  /* The network map's centre wash. */
+  --map-wash: rgba(29, 78, 216, 0.05);
+  --map-wash-edge: rgba(29, 78, 216, 0);
 
   /* Packet families — shared by the legend, both diagrams and the table. */
   --pk-dns: #2563eb;
@@ -61,10 +59,8 @@
   --grid: rgba(96, 165, 250, 0.08);
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 
-  --iso-floor: rgba(96, 165, 250, 0.07);
-  --iso-floor-far: rgba(96, 165, 250, 0.008);
-  --iso-floor-edge: rgba(96, 165, 250, 0.16);
-  --iso-cast: rgba(0, 0, 0, 0.45);
+  --map-wash: rgba(96, 165, 250, 0.07);
+  --map-wash-edge: rgba(96, 165, 250, 0);
 
   --pk-dns: #60a5fa;
   --pk-transport: #2dd4bf;
@@ -618,21 +614,56 @@ input {
   font-weight: 700;
   letter-spacing: 0.05em;
   fill: var(--ink);
+  /* A halo keeps a name readable where two devices sit close together. */
+  paint-order: stroke;
+  stroke: var(--panel);
+  stroke-width: 3.5px;
+  stroke-linejoin: round;
 }
 
 .node-sub {
   font-size: 11px;
   fill: var(--ink-faint);
+  paint-order: stroke;
+  stroke: var(--panel);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
+/* Wires sit in a soft bed, which gives them body without adding weight. */
+.link-bed {
+  stroke: var(--rule-soft);
+  stroke-width: 6;
+  stroke-linecap: round;
+  opacity: 0.55;
+  fill: none;
 }
 
 .link-line {
-  stroke: var(--rule);
-  stroke-width: 1.5;
+  stroke: var(--ink-faint);
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  opacity: 0.55;
   fill: none;
 }
 
 .link-line.is-dashed {
   stroke-dasharray: 5 5;
+}
+
+/* The wire the current packet is crossing takes the packet's own colour and
+   flows in the direction of travel. */
+.link-line.is-live {
+  stroke-width: 2.6;
+  stroke-dasharray: 11 9;
+  opacity: 1;
+  animation: wire-flow 0.65s linear infinite;
+}
+
+@keyframes wire-flow {
+  to {
+    stroke-dashoffset: -20;
+  }
 }
 
 .glyph {
@@ -650,13 +681,99 @@ input {
   stroke-linejoin: round;
 }
 
+/* Each device sits on a disc, so a laptop and a server read as the same kind
+   of object however differently they are drawn. */
+.node-halo {
+  fill: var(--accent);
+  opacity: 0.05;
+}
+
+.node-disc {
+  fill: var(--panel);
+  stroke: var(--rule-soft);
+  stroke-width: 1.4;
+}
+
+.node-group.is-active .node-disc {
+  fill: var(--accent-soft);
+  stroke: var(--accent);
+}
+
+.node-group.is-active .node-halo {
+  opacity: 0.14;
+}
+
 .node-group.is-active .glyph,
 .node-group.is-active .glyph-fill {
   stroke: var(--accent);
 }
 
+.node-group.is-active .glyph-fill {
+  fill: var(--accent-soft);
+}
+
 .node-group.is-active .node-label {
   fill: var(--accent);
+  stroke: var(--panel);
+}
+
+/* A ring that keeps expanding off whichever device is doing the talking. */
+.node-pulse {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  animation: node-pulse 1.7s ease-out infinite;
+}
+
+@keyframes node-pulse {
+  0% {
+    transform: scale(0.82);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(1.35);
+    opacity: 0;
+  }
+}
+
+/* --- the packet in flight --- */
+
+.packet-trail {
+  fill: none;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.4;
+}
+
+.packet-halo {
+  opacity: 0.2;
+  animation: packet-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes packet-pulse {
+  0%,
+  100% {
+    transform: scale(0.82);
+    opacity: 0.18;
+  }
+  50% {
+    transform: scale(1.18);
+    opacity: 0.34;
+  }
+}
+
+.packet-gloss {
+  fill: #fff;
+  opacity: 0.7;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .link-line.is-live,
+  .node-pulse,
+  .packet-halo {
+    animation: none;
+  }
 }
 
 .packet-label {
@@ -1180,205 +1297,5 @@ input {
 
   .stage {
     grid-template-rows: 340px auto;
-  }
-}
-
-
-/* --- the 3D map ---------------------------------------------------------
-   An oblique projection drawn entirely in SVG. The depth reads from four
-   cues stacked together: a receding floor grid, devices raised on plates,
-   each device's shadow cast back down, and a packet that arcs over the wire
-   while its shadow tracks it along the ground.
-   ---------------------------------------------------------------------- */
-
-.iso-floor {
-  stroke: var(--iso-floor-edge);
-  stroke-width: 1.2;
-}
-
-.iso-grid line {
-  stroke: var(--grid);
-  stroke-width: 1.1;
-}
-
-/* Wires sit in a soft bed so they read as channels cut into the floor. */
-.iso-wire-bed {
-  stroke: var(--rule-soft);
-  stroke-width: 7;
-  stroke-linecap: round;
-  opacity: 0.5;
-}
-
-.iso-wire {
-  stroke: var(--ink-faint);
-  stroke-width: 1.9;
-  opacity: 0.6;
-  stroke-linecap: round;
-  fill: none;
-}
-
-.iso-wire.is-dashed {
-  stroke-dasharray: 6 6;
-}
-
-/* The wire the current packet is crossing lights up in the packet's colour. */
-.iso-wire.is-live {
-  stroke-width: 2.6;
-  stroke-dasharray: 11 9;
-  opacity: 0.95;
-  animation: iso-flow 0.65s linear infinite;
-}
-
-@keyframes iso-flow {
-  to {
-    stroke-dashoffset: -20;
-  }
-}
-
-/* --- device plates --- */
-
-.iso-plate-side {
-  fill: var(--panel-sunken);
-  stroke: var(--rule);
-  stroke-width: 1.1;
-}
-
-.iso-plate-wall {
-  fill: var(--panel-sunken);
-  stroke: none;
-}
-
-.iso-plate-top {
-  fill: var(--panel);
-  stroke: var(--rule);
-  stroke-width: 1.4;
-}
-
-.iso-cast {
-  fill: var(--iso-cast);
-  opacity: 0.3;
-}
-
-.iso-pole {
-  stroke: var(--ink-faint);
-  stroke-width: 1.1;
-  stroke-dasharray: 2 4;
-  opacity: 0.45;
-}
-
-.iso-node .node-label,
-.iso-node .node-sub {
-  paint-order: stroke;
-  stroke: var(--panel);
-  stroke-width: 3.5px;
-  stroke-linejoin: round;
-}
-
-.iso-node .node-label {
-  font-size: 13px;
-}
-
-/* An active device lifts out of the floor: lit plate, accented glyph and a
-   ring that keeps expanding while it is the one doing the talking. */
-.iso-node.is-active .iso-plate-top {
-  fill: var(--accent-soft);
-  stroke: var(--accent);
-}
-
-.iso-node.is-active .iso-plate-side,
-.iso-node.is-active .iso-plate-wall {
-  fill: var(--accent-soft);
-}
-
-.iso-node.is-active .iso-pole {
-  stroke: var(--accent);
-}
-
-.iso-ripple {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 2;
-  animation: iso-ripple 1.7s ease-out infinite;
-}
-
-@keyframes iso-ripple {
-  0% {
-    transform: scale(0.72);
-    opacity: 0.75;
-  }
-  100% {
-    transform: scale(1.55);
-    opacity: 0;
-  }
-}
-
-/* The device itself hovers, which separates it from its plate. */
-.iso-device {
-  animation: iso-hover 4.5s ease-in-out infinite;
-}
-
-@keyframes iso-hover {
-  0%,
-  100% {
-    transform: translate(0, -50px);
-  }
-  50% {
-    transform: translate(0, -54px);
-  }
-}
-
-/* --- the packet --- */
-
-.iso-trail {
-  fill: none;
-  stroke-width: 2.6;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  opacity: 0.45;
-}
-
-.iso-packet-shadow {
-  fill: var(--iso-cast);
-  opacity: 0.4;
-}
-
-.iso-packet-drop {
-  stroke-width: 1.3;
-  stroke-dasharray: 2 3;
-  opacity: 0.5;
-}
-
-.iso-orb-halo {
-  opacity: 0.2;
-  animation: iso-orb 1.1s ease-in-out infinite;
-}
-
-@keyframes iso-orb {
-  0%,
-  100% {
-    transform: scale(0.82);
-    opacity: 0.18;
-  }
-  50% {
-    transform: scale(1.15);
-    opacity: 0.34;
-  }
-}
-
-.iso-orb-gloss {
-  fill: #fff;
-  opacity: 0.7;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .iso-wire.is-live,
-  .iso-ripple,
-  .iso-device,
-  .iso-orb-halo {
-    animation: none;
-  }
-
-  .iso-device {
-    transform: translate(0, -50px);
   }
 }

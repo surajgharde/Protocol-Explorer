@@ -1,9 +1,9 @@
 # Protocol Explorer
 
 An interactive way to learn how the internet works. Pick one of twenty-one
-protocols and watch it run packet by packet across a 3D network map, a flat
-network map or a sequence diagram, with an annotated capture table underneath
-and an explanation of the step currently on screen.
+protocols and watch it run packet by packet across a network map and a sequence
+diagram, with an annotated capture table underneath and an explanation of the
+step currently on screen.
 
 ## Running it
 
@@ -44,16 +44,15 @@ src/
   lib/
     usePlayback.ts      The animation clock
     packetKinds.ts      Packet colour families and time formatting
-    routing.ts          Wire-following paths, shared by both network maps
+    routing.ts          Wire-following paths and arc-length interpolation
   components/
-    Header, ProtocolRail, IsometricDiagram, NetworkDiagram,
-    SequenceDiagram, CapturePanel, DetailPanel, CommandPalette,
-    NodeGlyph, Icons
+    Header, ProtocolRail, NetworkDiagram, SequenceDiagram,
+    CapturePanel, DetailPanel, CommandPalette, NodeGlyph, Icons
   app/
     globals.css         The whole design system, as CSS custom properties
 ```
 
-Four ideas hold it together:
+Three ideas hold it together:
 
 **Playback is one number.** `usePlayback` tracks a single float in `[0, n]`. The
 integer part is how many packets have landed; any fraction is the packet still
@@ -65,20 +64,19 @@ step with each other.
 custom property, used identically by the legend, the dot crossing the network
 map, the sequence arrow and the row badge in the table.
 
-**Packets follow the wires.** The network maps run a breadth-first search over
+**Packets follow the wires.** The network map runs a breadth-first search over
 the drawn links, so a packet from the client to a root nameserver visibly
 travels via the router and the resolver rather than cutting across the diagram.
 
-**The 3D map is the same data, seen from a different camera.** `IsometricDiagram`
-applies a cabinet-oblique projection to the very same `x`/`y` floor plan the
-flat map draws: depth shears a point to the right and the plane is compressed
-vertically. Nothing in `src/data/` knows the 3D view exists, so a protocol added
-for one map arrives in the other for free. Depth is sold by four cues stacked
-together — a receding floor grid, devices raised on plates, each device's shadow
-cast back down onto its plate, and a packet that arcs over each wire while its
-shadow tracks it along the ground. Names are drawn in a pass above the devices,
-because a raised device is about 85 units tall while the three DNS nameservers
-sit only 99 apart, and strict depth order would bury the label behind.
+**Every device is a disc.** Glyphs are drawn at wildly different sizes — a
+laptop is wide and short, a server tall and narrow — so each sits on a disc of
+one radius. That gives the map a single repeating shape, and it lets wires be
+trimmed to the disc edge so they stop cleanly at a device instead of running
+underneath it. The disc is also what carries state: it fills with the accent
+colour and throws an expanding ring while its device is the one talking. The
+wire being crossed takes the packet's own colour and flows in the direction of
+travel, and the packet itself is an orb with a pulsing halo trailing the route
+it has covered so far.
 
 ## Adding a protocol
 
@@ -124,7 +122,7 @@ appears in the same place, and the second tuple element overrides any field.
 | `Space` | Play or pause |
 | `→` / `←` | Step forward or back one packet |
 | `R` | Reset the capture |
-| `V` | Cycle the 3D, network and sequence views |
+| `V` | Switch between network and sequence views |
 | `?` | Show the shortcut list |
 
 ## A note on the data

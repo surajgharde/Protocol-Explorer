@@ -128,15 +128,6 @@ export const LayersIcon = (p: IconProps) => (
   </Svg>
 );
 
-/** An isometric cube — the 3D map. */
-export const CubeIcon = (p: IconProps) => (
-  <Svg {...p}>
-    <path d="M8 1.6 14 5v6l-6 3.4L2 11V5Z" />
-    <path d="M2 5l6 3.4L14 5" />
-    <path d="M8 8.4v6" />
-  </Svg>
-);
-
 export const SequenceIcon = (p: IconProps) => (
   <Svg {...p}>
     <path d="M3.4 2v12M12.6 2v12" />
