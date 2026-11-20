@@ -12,11 +12,19 @@ const HEAD_H = 56;
 const ROW_H = 76;
 /** Gap between the head and the first band. */
 const TOP_GAP = 12;
-/** Half the width of one stack. */
-const COL_HALF = 152;
+/**
+ * Half the width of one stack. Wide enough for the deepest frame this view
+ * draws — an Ethernet, IP, TCP and application header around a payload label.
+ */
+const COL_HALF = 170;
 /** Column centres when both endpoints are drawn. */
-const LEFT_CX = 212;
-const RIGHT_CX = 788;
+const LEFT_CX = 190;
+const RIGHT_CX = 810;
+/**
+ * The frame is anchored this far in from the right edge of its band, so headers
+ * grow leftwards into the band while the payload stays put.
+ */
+const PDU_INSET = COL_HALF - 16;
 /** How far below the last band the medium runs. */
 const WIRE_DROP = 46;
 /** Space kept under the medium for its label. */
@@ -35,7 +43,9 @@ const WRAP_SHARE = 0.55;
 const CHIP_H = 26;
 const CHIP_GAP = 3;
 /** Longest payload label drawn before it is cut short. */
-const PAYLOAD_MAX = 16;
+const PAYLOAD_MAX = 12;
+/** Past this, a protocol's name is swapped for its short id on the chip. */
+const HEADER_MAX = 9;
 
 function clamp01(v: number) {
   return v < 0 ? 0 : v > 1 ? 1 : v;
@@ -89,7 +99,10 @@ function buildBands(protocol: Protocol): Band[] {
     {
       layer: protocol.layer,
       name: shortLayerName(protocol.layerName),
-      header: protocol.name,
+      // A spelled-out name like "DNS over HTTPS" would push the deepest frame
+      // past the width of its band, so those fall back to the short id.
+      header:
+        protocol.name.length <= HEADER_MAX ? protocol.name : protocol.id.toUpperCase(),
     },
     ...below,
   ];
@@ -302,18 +315,20 @@ export function StackDiagram({
             y2={wireY}
           />
         ))}
+        {/* The medium runs the full width of both stacks, so a frame crossing
+            it never hangs off the end of its own wire. */}
         <line
           className="link-bed"
-          x1={columns[0].cx}
+          x1={columns[0].cx - COL_HALF}
           y1={wireY}
-          x2={columns[columns.length - 1].cx}
+          x2={columns[columns.length - 1].cx + COL_HALF}
           y2={wireY}
         />
         <line
           className={`link-line${stage?.crossing ? " is-live" : ""}`}
-          x1={columns[0].cx}
+          x1={columns[0].cx - COL_HALF}
           y1={wireY}
-          x2={columns[columns.length - 1].cx}
+          x2={columns[columns.length - 1].cx + COL_HALF}
           y2={wireY}
           style={stage?.crossing ? { stroke: stage.color } : undefined}
         />
@@ -323,7 +338,7 @@ export function StackDiagram({
 
         {/* --- the protocol data unit --------------------------------------- */}
         {stage && (
-          <g transform={`translate(${stage.cx} ${stage.y})`}>
+          <g transform={`translate(${stage.cx + PDU_INSET} ${stage.y})`}>
             {stage.chips.map((chip, i) =>
               chip.w < 1 ? null : (
                 <g key={`${chip.text}-${i}`}>
