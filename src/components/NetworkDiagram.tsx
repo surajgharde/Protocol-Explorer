@@ -5,38 +5,55 @@ import type { Packet, Protocol } from "@/data/types";
 import { kindColor } from "@/lib/packetKinds";
 import {
   buildAdjacency,
-  pointAlong,
+  hopAlong,
   routeBetween,
   wireKey,
   type Point,
 } from "@/lib/routing";
-import { NodeGlyph } from "./NodeGlyph";
+import { IsoGlyph, glyphReach } from "./IsoGlyph";
+
+/** Gap left between the end of a wire and the device it points at. */
+const WIRE_GAP = 8;
+/** Peak height of a packet's arc as it crosses one wire. */
+const HOP = 34;
 
 /**
- * Every device sits on a disc of this radius. Links are trimmed to it so a
- * wire stops cleanly at the edge of a device instead of running under it, and
- * the glyphs all share one silhouette however differently they are drawn.
+ * Clearance around the floor plan. The top needs the most: devices are drawn
+ * standing up from their node, so a rack reaches about a hundred units above
+ * the point the data places it at.
  */
-const NODE_R = 42;
-/** Gap left between the end of a wire and the disc it points at. */
-const WIRE_GAP = 5;
+const PAD_X = 98;
+const PAD_TOP = 126;
+const PAD_BOTTOM = 92;
 
-/** Clearance around a disc, and the room its two label lines need below it. */
-const PAD_X = 84;
-const PAD_TOP = 62;
-const PAD_BOTTOM = 100;
-
-/** Shorten a segment at both ends so it meets the discs rather than the centres. */
-function trim(a: Point, b: Point, by: number) {
+/** Shorten a wire at both ends so it stops short of each device. */
+function trim(a: Point, b: Point, byA: number, byB: number) {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
   const d = Math.hypot(dx, dy);
-  // Two devices closer together than their own discs: draw the full segment
-  // and let the discs cover it rather than producing a backwards line.
-  if (d <= by * 2 + 2) return { x1: a.x, y1: a.y, x2: b.x, y2: b.y };
-  const ux = (dx / d) * by;
-  const uy = (dy / d) * by;
-  return { x1: a.x + ux, y1: a.y + uy, x2: b.x - ux, y2: b.y - uy };
+  // Two devices closer together than their own footprints: draw the full
+  // segment and let the glyphs cover it rather than produce a backwards line.
+  if (d <= byA + byB + 2) return { x1: a.x, y1: a.y, x2: b.x, y2: b.y, ux: 0, uy: 0 };
+  const ux = dx / d;
+  const uy = dy / d;
+  return {
+    x1: a.x + ux * byA,
+    y1: a.y + uy * byA,
+    x2: b.x - ux * byB,
+    y2: b.y - uy * byB,
+    ux,
+    uy,
+  };
+}
+
+/** A solid head at one end of a wire, pointing outward along it. */
+function arrowAt(x: number, y: number, ux: number, uy: number) {
+  const len = 9;
+  const half = 4.6;
+  // Back off along the wire, then step either side of it.
+  const bx = x - ux * len;
+  const by = y - uy * len;
+  return `M${x} ${y} L${bx - uy * half} ${by + ux * half} L${bx + uy * half} ${by - ux * half} Z`;
 }
 
 export function NetworkDiagram({
@@ -50,6 +67,11 @@ export function NetworkDiagram({
 }) {
   const positions = useMemo(
     () => new Map(protocol.nodes.map((n) => [n.id, { x: n.x, y: n.y }])),
+    [protocol],
+  );
+
+  const reach = useMemo(
+    () => new Map(protocol.nodes.map((n) => [n.id, glyphReach(n.kind)])),
     [protocol],
   );
 
@@ -84,13 +106,42 @@ export function NetworkDiagram({
     const route = routeBetween(packet.from, packet.to, adjacency);
     const points = route.map((id) => positions.get(id)).filter(Boolean) as Point[];
     if (points.length < 2) return null;
-    const at = pointAlong(points, progress);
+    const at = hopAlong(points, progress, HOP);
     /** The wires this packet is using, so they can light up in its colour. */
     const wires = new Set(route.slice(1).map((id, i) => wireKey(route[i], id)));
-    return { ...at, wires, color: kindColor(packet.kind), packet };
+    /** The device currently holding the packet, while it is being forwarded. */
+    const forwarding = at.dwelling ? route[at.segment] : null;
+    return {
+      ...at,
+      wires,
+      forwarding,
+      arriving: at.segment === points.length - 2 ? at.segmentRatio : 0,
+      destination: points[points.length - 1],
+      color: kindColor(packet.kind),
+      packet,
+    };
   }, [flight, adjacency, positions]);
 
   const label = motion?.packet.label ?? "";
+
+  /**
+   * The label rides beside the wire rather than on the packet. Devices stand
+   * on the ends of a wire, so anything centred on the packet collides with a
+   * machine or its name exactly when the packet arrives; a perpendicular
+   * offset, always chosen on the upper side, keeps it in open air.
+   */
+  const labelAt = useMemo(() => {
+    if (!motion) return { x: 0, y: -28 };
+    let px = motion.heading.y;
+    let py = -motion.heading.x;
+    if (py > 0) {
+      px = -px;
+      py = -py;
+    }
+    return { x: px * 30, y: py * 30 - 8 };
+  }, [motion]);
+  /** The ring that opens on the destination as the last hop closes. */
+  const landing = motion && motion.arriving > 0.72 ? (motion.arriving - 0.72) / 0.28 : 0;
 
   return (
     <svg
@@ -101,8 +152,8 @@ export function NetworkDiagram({
       aria-label={`Network map for ${protocol.name}`}
     >
       <defs>
-        <pattern id="bp-grid" width="40" height="40" patternUnits="userSpaceOnUse">
-          <path d="M20 17v6M17 20h6" stroke="var(--grid)" strokeWidth="1.2" />
+        <pattern id="bp-grid" width="34" height="34" patternUnits="userSpaceOnUse">
+          <path d="M34 0H0v34" fill="none" stroke="var(--grid)" strokeWidth="1" />
         </pattern>
         {/* A faint wash toward the middle, so the map sits on the panel rather
             than floating on a flat field of grid. */}
@@ -121,24 +172,41 @@ export function NetworkDiagram({
           const a = positions.get(link.from);
           const b = positions.get(link.to);
           if (!a || !b) return null;
-          const seg = trim(a, b, NODE_R + WIRE_GAP);
+          const ra = (reach.get(link.from)?.wire ?? 42) + WIRE_GAP;
+          const rb = (reach.get(link.to)?.wire ?? 42) + WIRE_GAP;
+          const seg = trim(a, b, ra, rb);
           const live = motion?.wires.has(wireKey(link.from, link.to)) ?? false;
+          const tint = live && motion ? { stroke: motion.color } : undefined;
           return (
             <g key={i}>
-              <line className="link-bed" {...seg} />
+              <line className="link-bed" x1={seg.x1} y1={seg.y1} x2={seg.x2} y2={seg.y2} />
               <line
-                {...seg}
+                x1={seg.x1}
+                y1={seg.y1}
+                x2={seg.x2}
+                y2={seg.y2}
                 className={`link-line${link.style === "dashed" ? " is-dashed" : ""}${
                   live ? " is-live" : ""
                 }`}
-                style={live && motion ? { stroke: motion.color } : undefined}
+                style={tint}
+              />
+              {/* Both ends carry a head: these wires run in either direction. */}
+              <path
+                className={`link-head${live ? " is-live" : ""}`}
+                d={arrowAt(seg.x2, seg.y2, seg.ux, seg.uy)}
+                style={live && motion ? { fill: motion.color } : undefined}
+              />
+              <path
+                className={`link-head${live ? " is-live" : ""}`}
+                d={arrowAt(seg.x1, seg.y1, -seg.ux, -seg.uy)}
+                style={live && motion ? { fill: motion.color } : undefined}
               />
             </g>
           );
         })}
       </g>
 
-      {/* The travelled portion of the current packet's route. */}
+      {/* The travelled portion of the current packet's route, on the floor. */}
       {motion && (
         <polyline
           className="packet-trail"
@@ -147,27 +215,50 @@ export function NetworkDiagram({
         />
       )}
 
+      {/* The ring that opens on the device the packet is about to reach. */}
+      {motion && landing > 0 && (
+        <ellipse
+          className="packet-landing"
+          cx={motion.destination.x}
+          cy={motion.destination.y}
+          rx={12 + landing * 30}
+          ry={(12 + landing * 30) * 0.5}
+          stroke={motion.color}
+          opacity={0.55 * (1 - landing)}
+        />
+      )}
+
       {/* --- devices ------------------------------------------------------ */}
       <g>
         {protocol.nodes.map((node) => {
           const isActive = active ? active.from === node.id || active.to === node.id : false;
+          const busy = motion?.forwarding === node.id;
+          const size = reach.get(node.id) ?? glyphReach(node.kind);
           return (
             <g
               key={node.id}
-              className={`node-group${isActive ? " is-active" : ""}`}
+              className={`iso-node${isActive ? " is-active" : ""}${busy ? " is-busy" : ""}`}
               transform={`translate(${node.x} ${node.y})`}
             >
-              <circle className="node-halo" r={NODE_R + 7} />
-              <circle className="node-disc" r={NODE_R} />
-              {isActive && <circle className="node-pulse" r={NODE_R} />}
+              {/* The device sits on its own shadow rather than on a disc. */}
+              <ellipse
+                className="iso-shadow"
+                cx={size.wire * 0.12}
+                cy={size.wire * 0.1}
+                rx={size.wire * 0.86}
+                ry={size.wire * 0.44}
+              />
+              {(isActive || busy) && (
+                <ellipse className="iso-pulse" rx={size.wire * 0.9} ry={size.wire * 0.46} />
+              )}
 
-              <NodeGlyph kind={node.kind} />
+              <IsoGlyph kind={node.kind} />
 
-              <text className="node-label" textAnchor="middle" y={NODE_R + 24}>
+              <text className="node-label" textAnchor="middle" y={size.label + 26}>
                 {node.label}
               </text>
               {node.sublabel && (
-                <text className="node-sub" textAnchor="middle" y={NODE_R + 40}>
+                <text className="node-sub" textAnchor="middle" y={size.label + 42}>
                   {node.sublabel}
                 </text>
               )}
@@ -178,22 +269,35 @@ export function NetworkDiagram({
 
       {/* --- the packet in flight ----------------------------------------- */}
       {motion && (
-        <g transform={`translate(${motion.x} ${motion.y})`}>
-          <circle className="packet-halo" r="16" fill={motion.color} />
-          <circle r="7.5" fill={motion.color} />
-          <circle className="packet-gloss" cx="-2.4" cy="-2.8" r="2.4" />
-          <g transform={`translate(0 ${motion.y > box.y + box.h / 2 ? -26 : 28})`}>
-            <rect
-              x={-(label.length * 3.4 + 9)}
-              y="-10"
-              width={label.length * 6.8 + 18}
-              height="19"
-              rx="3"
-              fill={motion.color}
-            />
-            <text className="packet-label" textAnchor="middle" y="3.5" fill="#fff">
-              {label}
-            </text>
+        <g>
+          {/* The shadow stays on the floor and tightens as the packet climbs,
+              which is what sells the height of the arc. */}
+          <ellipse
+            className="packet-shadow"
+            cx={motion.x}
+            cy={motion.y}
+            rx={9 - (motion.lift / HOP) * 3.4}
+            ry={(9 - (motion.lift / HOP) * 3.4) * 0.5}
+            opacity={0.26 - (motion.lift / HOP) * 0.13}
+          />
+
+          <g transform={`translate(${motion.x} ${motion.y - motion.lift})`}>
+            <circle className="packet-halo" r="16" fill={motion.color} />
+            <circle r="7.5" fill={motion.color} />
+            <circle className="packet-gloss" cx="-2.4" cy="-2.8" r="2.4" />
+            <g transform={`translate(${labelAt.x} ${labelAt.y})`}>
+              <rect
+                x={-(label.length * 3.4 + 9)}
+                y="-10"
+                width={label.length * 6.8 + 18}
+                height="19"
+                rx="3"
+                fill={motion.color}
+              />
+              <text className="packet-label" textAnchor="middle" y="3.5" fill="#fff">
+                {label}
+              </text>
+            </g>
           </g>
         </g>
       )}

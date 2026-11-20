@@ -43,51 +43,84 @@ export function routeBetween(
 }
 
 export interface AlongResult extends Point {
-  /** Heading in degrees at this point. */
-  angle: number;
-  /** The route up to and including this point. */
+  /** Unit heading of the wire being crossed. */
+  heading: Point;
+  /** Height above the floor, which is what turns a slide into a hop. */
+  lift: number;
+  /** The route walked so far, along the floor. */
   trail: Point[];
-  /** Which segment of the polyline the point sits on. */
+  /** Which wire of the route the packet is on. */
   segment: number;
-  /** Progress across that one segment, 0..1 — drives the per-wire hop arc. */
+  /** Progress across that one wire, 0..1, already eased. */
   segmentRatio: number;
+  /** True while the packet is held at a device rather than travelling. */
+  dwelling: boolean;
 }
 
-/** Position and heading at `progress` along a polyline, measured by arc length. */
-export function pointAlong(points: Point[], progress: number): AlongResult {
-  const spans = points
-    .slice(1)
-    .map((p, i) => Math.hypot(p.x - points[i].x, p.y - points[i].y));
-  const total = spans.reduce((a, b) => a + b, 0);
-  if (total === 0) {
-    return { ...points[0], angle: 0, trail: [points[0]], segment: 0, segmentRatio: 0 };
+/** Share of a wire's time spent being forwarded by the device it leaves. */
+const FORWARD_DWELL = 0.12;
+
+/**
+ * Smoothstep rather than a cubic ease. The dwell already holds the packet
+ * still at the device; following it with a steep ease-in left the packet
+ * barely moving for the first sixth of the wire, which read as a stall rather
+ * than as acceleration.
+ */
+function ease(t: number) {
+  return t * t * (3 - 2 * t);
+}
+
+/**
+ * Position along a route, one wire at a time.
+ *
+ * Each wire gets an equal share of the flight rather than a share of the
+ * distance, so a short hop between two devices standing close together still
+ * reads as a hop. Within a wire the packet eases away and eases in, and on
+ * every wire after the first it is held briefly at the device doing the
+ * forwarding — a packet should visibly stop to be routed rather than glide
+ * over a router as though it were not there. `hop` is the peak height of the
+ * arc, which the map pairs with a shadow on the floor.
+ */
+export function hopAlong(points: Point[], progress: number, hop: number): AlongResult {
+  const segments = points.length - 1;
+  if (segments < 1) {
+    return {
+      ...points[0],
+      heading: { x: 1, y: 0 },
+      lift: 0,
+      trail: [points[0]],
+      segment: 0,
+      segmentRatio: 0,
+      dwelling: false,
+    };
   }
 
-  let remaining = progress * total;
-  for (let i = 0; i < spans.length; i++) {
-    if (remaining <= spans[i] || i === spans.length - 1) {
-      const ratio = spans[i] === 0 ? 0 : Math.min(1, remaining / spans[i]);
-      const a = points[i];
-      const b = points[i + 1];
-      const here = { x: a.x + (b.x - a.x) * ratio, y: a.y + (b.y - a.y) * ratio };
-      return {
-        ...here,
-        angle: (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI,
-        trail: [...points.slice(0, i + 1), here],
-        segment: i,
-        segmentRatio: ratio,
-      };
-    }
-    remaining -= spans[i];
-  }
+  const scaled = Math.min(Math.max(progress, 0), 1) * segments;
+  const index = Math.min(segments - 1, Math.floor(scaled));
+  const local = scaled - index;
 
-  const last = points.length - 1;
+  // The first wire has nothing to wait for: the packet starts at its source.
+  const dwell = index === 0 ? 0 : FORWARD_DWELL;
+  const dwelling = local < dwell;
+  const t = dwelling ? 0 : ease((local - dwell) / (1 - dwell));
+
+  const a = points[index];
+  const b = points[index + 1];
+  const here = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+
+  // Unit heading of the wire being crossed, so the map can hang the packet's
+  // label alongside the wire instead of on top of whatever it is passing.
+  const span = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+  const heading = { x: (b.x - a.x) / span, y: (b.y - a.y) / span };
+
   return {
-    ...points[last],
-    angle: 0,
-    trail: points,
-    segment: Math.max(0, last - 1),
-    segmentRatio: 1,
+    ...here,
+    heading,
+    lift: Math.sin(Math.PI * t) * hop,
+    trail: [...points.slice(0, index + 1), here],
+    segment: index,
+    segmentRatio: t,
+    dwelling,
   };
 }
 

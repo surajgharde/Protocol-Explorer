@@ -34,6 +34,16 @@
   --pk-control: #e11d48;
   --pk-media: #c026d3;
 
+  /* Isometric device art: three face tints plus one outline colour is all the
+     depth the glyphs need. */
+  --iso-line: #3657b8;
+  --iso-top: #ffffff;
+  --iso-right: #f1f5fd;
+  --iso-left: #e2eaf7;
+  --iso-detail: #8097c7;
+  --iso-screen: #dbe6fa;
+  --iso-shadow: rgba(15, 37, 80, 0.11);
+
   --font-mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, "SF Mono",
     "Cascadia Code", Consolas, "DejaVu Sans Mono", monospace;
 
@@ -69,6 +79,14 @@
   --pk-secure: #22d3ee;
   --pk-control: #fb7185;
   --pk-media: #e879f9;
+
+  --iso-line: #6f9bf0;
+  --iso-top: #17253f;
+  --iso-right: #121d33;
+  --iso-left: #0d1727;
+  --iso-detail: #5f7cb3;
+  --iso-screen: #1b2b4a;
+  --iso-shadow: rgba(0, 0, 0, 0.5);
 }
 
 * {
@@ -666,59 +684,116 @@ input {
   }
 }
 
-.glyph {
-  fill: none;
-  stroke: var(--ink-soft);
-  stroke-width: 1.6;
+/* --- isometric device art ---
+   Faces carry the depth, a single outline colour holds the drawing together,
+   and nothing sits on a disc: each device stands on its own shadow. */
+
+.iso-face {
+  stroke: var(--iso-line);
+  stroke-width: 1.5;
   stroke-linejoin: round;
+}
+
+.iso-top {
+  fill: var(--iso-top);
+}
+
+.iso-right {
+  fill: var(--iso-right);
+}
+
+.iso-left {
+  fill: var(--iso-left);
+}
+
+.iso-lid {
+  fill: var(--iso-right);
+}
+
+.iso-detail {
+  fill: none;
+  stroke: var(--iso-detail);
+  stroke-width: 1.3;
   stroke-linecap: round;
 }
 
-.glyph-fill {
-  fill: var(--panel);
-  stroke: var(--ink-soft);
+.iso-panel {
+  fill: var(--iso-screen);
+  stroke: var(--iso-line);
+  stroke-width: 1;
+  stroke-linejoin: round;
+}
+
+/* The one spot of saturated colour on a device, so a machine reads as powered. */
+.iso-lamp {
+  fill: var(--accent);
+}
+
+.iso-screen {
+  fill: var(--iso-screen);
+  stroke: var(--iso-line);
+  stroke-width: 1.1;
+  stroke-linejoin: round;
+}
+
+.iso-mast {
+  fill: none;
+  stroke: var(--iso-line);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+}
+
+.iso-tip {
+  fill: var(--iso-line);
+}
+
+.iso-lens {
+  fill: var(--iso-screen);
+  stroke: var(--iso-line);
+  stroke-width: 1.4;
+}
+
+.iso-cloud {
+  fill: var(--iso-top);
+  stroke: var(--iso-line);
+  stroke-width: 1.8;
+  stroke-linejoin: round;
+}
+
+.iso-globe {
+  fill: none;
+  stroke: var(--iso-line);
+  stroke-width: 1.5;
+}
+
+.iso-shield {
+  fill: var(--iso-right);
+  stroke: var(--iso-line);
   stroke-width: 1.6;
   stroke-linejoin: round;
 }
 
-/* Each device sits on a disc, so a laptop and a server read as the same kind
-   of object however differently they are drawn. */
-.node-halo {
-  fill: var(--accent);
-  opacity: 0.05;
-}
-
-.node-disc {
-  fill: var(--panel);
-  stroke: var(--rule-soft);
-  stroke-width: 1.4;
-}
-
-.node-group.is-active .node-disc {
-  fill: var(--accent-soft);
+.iso-check {
+  fill: none;
   stroke: var(--accent);
+  stroke-width: 2.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
-.node-group.is-active .node-halo {
-  opacity: 0.14;
+.iso-paper {
+  fill: var(--iso-top);
+  stroke: var(--iso-line);
+  stroke-width: 1.1;
 }
 
-.node-group.is-active .glyph,
-.node-group.is-active .glyph-fill {
-  stroke: var(--accent);
+/* Ground contact. Without it the devices float off the grid. */
+.iso-shadow {
+  fill: var(--iso-shadow);
 }
 
-.node-group.is-active .glyph-fill {
-  fill: var(--accent-soft);
-}
-
-.node-group.is-active .node-label {
-  fill: var(--accent);
-  stroke: var(--panel);
-}
-
-/* A ring that keeps expanding off whichever device is doing the talking. */
-.node-pulse {
+/* A ring on the floor under whichever device is doing the talking. */
+.iso-pulse {
   fill: none;
   stroke: var(--accent);
   stroke-width: 2;
@@ -728,12 +803,48 @@ input {
 @keyframes node-pulse {
   0% {
     transform: scale(0.82);
-    opacity: 0.6;
+    opacity: 0.55;
   }
   100% {
     transform: scale(1.35);
     opacity: 0;
   }
+}
+
+.iso-node.is-active .iso-face {
+  stroke: var(--accent);
+}
+
+.iso-node.is-active .iso-top,
+.iso-node.is-active .iso-right {
+  fill: var(--accent-soft);
+}
+
+.iso-node.is-active .iso-cloud,
+.iso-node.is-active .iso-shield {
+  stroke: var(--accent);
+  fill: var(--accent-soft);
+}
+
+.iso-node.is-active .node-label {
+  fill: var(--accent);
+  stroke: var(--panel);
+}
+
+/* The device currently forwarding the packet, held for a beat mid-route. */
+.iso-node.is-busy .iso-face {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+/* Heads on both ends of a wire: these links carry traffic either way. */
+.link-head {
+  fill: var(--ink-faint);
+  opacity: 0.45;
+}
+
+.link-head.is-live {
+  opacity: 1;
 }
 
 /* --- the packet in flight --- */
@@ -763,6 +874,16 @@ input {
   }
 }
 
+.packet-shadow {
+  fill: var(--iso-shadow);
+}
+
+/* Opens on the destination as the last hop closes, so an arrival lands. */
+.packet-landing {
+  fill: none;
+  stroke-width: 2.2;
+}
+
 .packet-gloss {
   fill: #fff;
   opacity: 0.7;
@@ -770,7 +891,7 @@ input {
 
 @media (prefers-reduced-motion: reduce) {
   .link-line.is-live,
-  .node-pulse,
+  .iso-pulse,
   .packet-halo {
     animation: none;
   }
