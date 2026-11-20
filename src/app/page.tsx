@@ -8,15 +8,19 @@ import { CapturePanel } from "@/components/CapturePanel";
 import { CommandPalette } from "@/components/CommandPalette";
 import { DetailPanel } from "@/components/DetailPanel";
 import { Header } from "@/components/Header";
-import { LayersIcon, SequenceIcon } from "@/components/Icons";
+import { LayersIcon, SequenceIcon, StackIcon } from "@/components/Icons";
 import { NetworkDiagram } from "@/components/NetworkDiagram";
 import { ProtocolRail } from "@/components/ProtocolRail";
 import { SequenceDiagram } from "@/components/SequenceDiagram";
+import { StackDiagram } from "@/components/StackDiagram";
 
 const CAPTURE_NOTE = "Illustrative capture · routine ACKs trimmed";
 const THEME_KEY = "protocol-explorer-theme";
 
-type View = "network" | "sequence";
+type View = "network" | "sequence" | "stack";
+
+/** V cycles the views in this order. */
+const VIEW_ORDER: View[] = ["network", "sequence", "stack"];
 
 export default function Page() {
   const [selectedId, setSelectedId] = useState(protocols[0].id);
@@ -147,7 +151,8 @@ export default function Page() {
           break;
         default:
           if (e.key.toLowerCase() === "r") playback.reset();
-          if (e.key.toLowerCase() === "v") setView((v) => (v === "network" ? "sequence" : "network"));
+          if (e.key.toLowerCase() === "v")
+            setView((v) => VIEW_ORDER[(VIEW_ORDER.indexOf(v) + 1) % VIEW_ORDER.length]);
           if (e.key === "?") setShortcutsOpen((open) => !open);
       }
     };
@@ -217,9 +222,18 @@ export default function Page() {
                 <SequenceIcon size={12} />
                 Sequence
               </button>
+              <button
+                type="button"
+                className="chip"
+                aria-pressed={view === "stack"}
+                onClick={() => setView("stack")}
+              >
+                <StackIcon size={12} />
+                Stack
+              </button>
             </div>
 
-            {view === "network" ? (
+            {view === "network" && (
               <div className="diagram-body">
                 <NetworkDiagram
                   protocol={protocol}
@@ -227,13 +241,17 @@ export default function Page() {
                   lastPacket={currentPacket}
                 />
               </div>
-            ) : (
+            )}
+            {view === "sequence" && (
               <SequenceDiagram
                 protocol={protocol}
                 delivered={delivered}
                 flight={flight}
                 currentIndex={currentIndex}
               />
+            )}
+            {view === "stack" && (
+              <StackDiagram protocol={protocol} flight={flight} lastPacket={currentPacket} />
             )}
           </section>
 
@@ -290,7 +308,7 @@ export default function Page() {
                   { label: "→", value: "Step forward one packet" },
                   { label: "←", value: "Step back one packet" },
                   { label: "R", value: "Reset the capture" },
-                  { label: "V", value: "Switch network and sequence views" },
+                  { label: "V", value: "Cycle network, sequence and stack views" },
                   { label: "?", value: "Show this list" },
                 ].map((row) => (
                   <div className="spec-row" key={row.label}>

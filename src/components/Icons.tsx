@@ -136,6 +136,15 @@ export const SequenceIcon = (p: IconProps) => (
   </Svg>
 );
 
+/** Nested frames, for the encapsulation view: a header wrapped round a header. */
+export const StackIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="1.4" y="3.4" width="13.2" height="9.2" rx="1.2" />
+    <rect x="4.4" y="6.4" width="10.2" height="3.2" rx="1" />
+    <path d="M9.4 6.4v3.2" />
+  </Svg>
+);
+
 export const KeyboardIcon = (p: IconProps) => (
   <Svg {...p}>
     <rect x="1.4" y="4" width="13.2" height="8" rx="1.4" />
