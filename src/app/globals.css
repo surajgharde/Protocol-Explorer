@@ -837,6 +837,17 @@ input {
   stroke-width: 2;
 }
 
+/* Devices and wires enter as the lesson reaches them, and never leave again. */
+.iso-node,
+.wire {
+  transition: opacity 0.45s ease;
+}
+
+.iso-node.is-away,
+.wire.is-away {
+  opacity: 0;
+}
+
 /* Heads on both ends of a wire: these links carry traffic either way. */
 .link-head {
   fill: var(--ink-faint);
@@ -894,6 +905,11 @@ input {
   .iso-pulse,
   .packet-halo {
     animation: none;
+  }
+
+  .iso-node,
+  .wire {
+    transition: none;
   }
 }
 

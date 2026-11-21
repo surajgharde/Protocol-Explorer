@@ -239,6 +239,8 @@ export default function Page() {
                   protocol={protocol}
                   flight={flight}
                   lastPacket={currentPacket}
+                  stepIndex={currentStep}
+                  overview={!showStep}
                 />
               </div>
             )}

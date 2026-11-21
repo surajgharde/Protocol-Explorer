@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Packet, Protocol } from "@/data/types";
 import { kindColor } from "@/lib/packetKinds";
 import {
@@ -25,6 +25,81 @@ const HOP = 34;
 const PAD_X = 98;
 const PAD_TOP = 126;
 const PAD_BOTTOM = 92;
+
+/** How long the camera takes to travel between two framings. */
+const CAMERA_MS = 620;
+/**
+ * Floor on a framing, and the shape every framing is pushed toward. A single
+ * device would otherwise fill the panel at an absurd magnification, and a
+ * two-device framing laid out flat would read at a different lens than a
+ * five-device one.
+ */
+const MIN_W = 470;
+const MIN_H = 330;
+const ASPECT = 1.55;
+
+interface Box {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** The framing that holds a set of devices, at the camera's one lens. */
+function frameOf(points: Point[]): Box {
+  const minX = Math.min(...points.map((p) => p.x)) - PAD_X;
+  const maxX = Math.max(...points.map((p) => p.x)) + PAD_X;
+  const minY = Math.min(...points.map((p) => p.y)) - PAD_TOP;
+  const maxY = Math.max(...points.map((p) => p.y)) + PAD_BOTTOM;
+
+  let w = Math.max(MIN_W, maxX - minX);
+  let h = Math.max(MIN_H, maxY - minY);
+  if (w / h < ASPECT) w = h * ASPECT;
+  else h = w / ASPECT;
+
+  return { x: (minX + maxX) / 2 - w / 2, y: (minY + maxY) / 2 - h / 2, w, h };
+}
+
+/**
+ * Eases the camera from wherever it is toward a new framing. A change of
+ * protocol is a change of scene, so that one cuts instead of panning.
+ */
+function useEasedBox(target: Box, scene: string): Box {
+  const [box, setBox] = useState(target);
+  const boxRef = useRef(target);
+  const sceneRef = useRef(scene);
+  const key = `${target.x} ${target.y} ${target.w} ${target.h}`;
+
+  useEffect(() => {
+    if (sceneRef.current !== scene) {
+      sceneRef.current = scene;
+      boxRef.current = target;
+      setBox(target);
+      return;
+    }
+
+    const from = boxRef.current;
+    const start = performance.now();
+    let frame = requestAnimationFrame(function tick(now) {
+      const t = Math.min(1, (now - start) / CAMERA_MS);
+      const e = t * t * (3 - 2 * t);
+      const next = {
+        x: from.x + (target.x - from.x) * e,
+        y: from.y + (target.y - from.y) * e,
+        w: from.w + (target.w - from.w) * e,
+        h: from.h + (target.h - from.h) * e,
+      };
+      boxRef.current = next;
+      setBox(next);
+      if (t < 1) frame = requestAnimationFrame(tick);
+    });
+    return () => cancelAnimationFrame(frame);
+    // `key` stands in for `target`, which is a fresh object on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, scene]);
+
+  return box;
+}
 
 /** Shorten a wire at both ends so it stops short of each device. */
 function trim(a: Point, b: Point, byA: number, byB: number) {
@@ -60,10 +135,16 @@ export function NetworkDiagram({
   protocol,
   flight,
   lastPacket,
+  stepIndex,
+  overview,
 }: {
   protocol: Protocol;
   flight: { packet: Packet; progress: number } | null;
   lastPacket: Packet | null;
+  /** The step the lesson is on, which is what the camera frames. */
+  stepIndex: number;
+  /** Before the capture has moved: show the whole topology rather than a step. */
+  overview: boolean;
 }) {
   const positions = useMemo(
     () => new Map(protocol.nodes.map((n) => [n.id, { x: n.x, y: n.y }])),
@@ -80,23 +161,80 @@ export function NetworkDiagram({
     [protocol, positions],
   );
 
-  /**
-   * Fit the viewBox to the devices actually on screen. Topologies vary from two
-   * nodes to six, and a fixed box would leave half the panel empty for the
-   * small ones.
-   */
-  const box = useMemo(() => {
-    const xs = protocol.nodes.map((n) => n.x);
-    const ys = protocol.nodes.map((n) => n.y);
-    const minX = Math.min(...xs) - PAD_X;
-    const minY = Math.min(...ys) - PAD_TOP;
-    return {
-      x: minX,
-      y: minY,
-      w: Math.max(...xs) + PAD_X - minX,
-      h: Math.max(...ys) + PAD_BOTTOM - minY,
-    };
+  /** The whole floor plan, which the grid and the wash are painted across. */
+  const world = useMemo(() => {
+    const all = frameOf(protocol.nodes.map((n) => ({ x: n.x, y: n.y })));
+    // Generous bleed: the camera pans inside this, and the grid must not end
+    // part way through a move.
+    return { x: all.x - 400, y: all.y - 400, w: all.w + 800, h: all.h + 800 };
   }, [protocol]);
+
+  /** Every device each step puts on the wire, intermediate hops included. */
+  const stepCast = useMemo(() => {
+    const byStep = new Map<number, Set<string>>();
+    for (const packet of protocol.packets) {
+      const cast = byStep.get(packet.step) ?? new Set<string>();
+      for (const id of routeBetween(packet.from, packet.to, adjacency)) cast.add(id);
+      byStep.set(packet.step, cast);
+    }
+    return byStep;
+  }, [protocol, adjacency]);
+
+  /**
+   * Who the camera is on. A step that sends nothing — the browser preparing a
+   * request, the page painting — still has a subject: wherever the last packet
+   * landed, or wherever the next one is about to leave from.
+   */
+  const cast = useMemo(() => {
+    if (overview) return new Set(protocol.nodes.map((n) => n.id));
+    const direct = stepCast.get(stepIndex);
+    if (direct?.size) return direct;
+    const before = protocol.packets.filter((p) => p.step < stepIndex).at(-1);
+    if (before) return new Set([before.to]);
+    const after = protocol.packets.find((p) => p.step > stepIndex);
+    if (after) return new Set([after.from]);
+    return new Set(protocol.nodes.map((n) => n.id));
+  }, [overview, stepCast, stepIndex, protocol]);
+
+  /**
+   * Scenery: a device no packet ever routes through, such as the internet
+   * cloud hanging off a router. It carries no traffic of its own, so it would
+   * never arrive on its own account — it comes in with whatever it links to,
+   * and is framed with it so its name is not left hanging off the edge.
+   */
+  const dressed = useCallback(
+    (base: Set<string>) => {
+      const carries = new Set<string>();
+      for (const ids of stepCast.values()) for (const id of ids) carries.add(id);
+      const set = new Set(base);
+      for (const node of protocol.nodes) {
+        if (carries.has(node.id) || set.has(node.id)) continue;
+        if ((adjacency.get(node.id) ?? []).some((peer) => base.has(peer))) set.add(node.id);
+      }
+      return set;
+    },
+    [stepCast, protocol, adjacency],
+  );
+
+  /** Devices the lesson has reached. A device never leaves once it arrives. */
+  const shown = useMemo(() => {
+    if (overview) return new Set(protocol.nodes.map((n) => n.id));
+    const reached = new Set(cast);
+    for (const [step, ids] of stepCast) {
+      if (step <= stepIndex) for (const id of ids) reached.add(id);
+    }
+    return dressed(reached);
+  }, [overview, cast, stepCast, stepIndex, protocol, dressed]);
+
+  const target = useMemo(() => {
+    const framed = overview ? cast : dressed(cast);
+    const points = protocol.nodes
+      .filter((n) => framed.has(n.id))
+      .map((n) => ({ x: n.x, y: n.y }));
+    return frameOf(points.length ? points : protocol.nodes.map((n) => ({ x: n.x, y: n.y })));
+  }, [overview, cast, dressed, protocol]);
+
+  const box = useEasedBox(target, protocol.id);
 
   const active = flight?.packet ?? lastPacket;
 
@@ -163,8 +301,8 @@ export function NetworkDiagram({
         </radialGradient>
       </defs>
 
-      <rect x={box.x} y={box.y} width={box.w} height={box.h} fill="url(#bp-grid)" />
-      <rect x={box.x} y={box.y} width={box.w} height={box.h} fill="url(#bp-wash)" />
+      <rect x={world.x} y={world.y} width={world.w} height={world.h} fill="url(#bp-grid)" />
+      <rect x={world.x} y={world.y} width={world.w} height={world.h} fill="url(#bp-wash)" />
 
       {/* --- wires, under everything -------------------------------------- */}
       <g>
@@ -177,8 +315,10 @@ export function NetworkDiagram({
           const seg = trim(a, b, ra, rb);
           const live = motion?.wires.has(wireKey(link.from, link.to)) ?? false;
           const tint = live && motion ? { stroke: motion.color } : undefined;
+          // A wire only exists once both devices it joins have arrived.
+          const here = shown.has(link.from) && shown.has(link.to);
           return (
-            <g key={i}>
+            <g key={i} className={`wire${here ? "" : " is-away"}`}>
               <line className="link-bed" x1={seg.x1} y1={seg.y1} x2={seg.x2} y2={seg.y2} />
               <line
                 x1={seg.x1}
@@ -237,7 +377,9 @@ export function NetworkDiagram({
           return (
             <g
               key={node.id}
-              className={`iso-node${isActive ? " is-active" : ""}${busy ? " is-busy" : ""}`}
+              className={`iso-node${isActive ? " is-active" : ""}${busy ? " is-busy" : ""}${
+                shown.has(node.id) ? "" : " is-away"
+              }`}
               transform={`translate(${node.x} ${node.y})`}
             >
               {/* The device sits on its own shadow rather than on a disc. */}
